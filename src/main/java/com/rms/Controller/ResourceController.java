@@ -1,0 +1,75 @@
+package com.rms.Controller;
+
+import java.util.List;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import com.rms.Service.ResourceService;
+import com.rms.dto.ResourceRequest;
+import com.rms.dto.ResourceResponse;
+
+import jakarta.validation.Valid;
+
+@RestController
+@RequestMapping("/api/resources")
+public class ResourceController {
+
+    private final ResourceService resourceService;
+
+    public ResourceController(ResourceService resourceService) {
+        this.resourceService = resourceService;
+    }
+
+    @PostMapping
+    public ResponseEntity<ResourceResponse> createResource(
+            @Valid @RequestBody ResourceRequest request) {
+
+        ResourceResponse response =
+                resourceService.createResource(request);
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(response);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<ResourceResponse>> getAllResources() {
+
+        List<ResourceResponse> resources =
+                resourceService.getAllResources();
+
+        return ResponseEntity.ok(resources);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ResourceResponse> getResourceById(
+            @PathVariable Long id) {
+
+        ResourceResponse response =
+                resourceService.getResourceById(id);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ResourceResponse> updateResource(
+            @PathVariable Long id,
+            @Valid @RequestBody ResourceRequest request) {
+
+        ResourceResponse response =
+                resourceService.updateResource(id, request);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteResource(
+            @PathVariable Long id) {
+
+        resourceService.deleteResource(id);
+
+        return ResponseEntity.noContent().build();
+    }
+}
