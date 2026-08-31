@@ -4,6 +4,7 @@ package com.rms.Service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -15,6 +16,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import com.rms.Enums.ReservationStatus;
+import com.rms.Exception.ReservationNotFoundException;
+import com.rms.Exception.ResourceNotFoundException;
+import com.rms.Exception.UserNotFoundException;
 import com.rms.Repository.ReservationRepository;
 import com.rms.Repository.ResourceRepository;
 import com.rms.Repository.UserRepository;
@@ -23,9 +27,6 @@ import com.rms.dto.ReservationResponse;
 import com.rms.entity.Reservation;
 import com.rms.entity.Resource;
 import com.rms.entity.User;
-import com.rms.Exception.ReservationNotFoundException;
-import com.rms.Exception.ResourceNotFoundException;
-import com.rms.Exception.UserNotFoundException;
 
 @Service
 public class ReservationService {
@@ -33,6 +34,18 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final ResourceRepository resourceRepository;
     private final UserRepository userRepository;
+
+    /*
+     * Only these Reservation entity fields are allowed
+     * for sorting.
+     */
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
+            "id",
+            "startTime",
+            "endTime",
+            "price",
+            "createdAt"
+    );
 
     public ReservationService(
             ReservationRepository reservationRepository,
@@ -44,13 +57,23 @@ public class ReservationService {
         this.userRepository = userRepository;
     }
 
+    // =========================================================
     // CREATE RESERVATION
+    // =========================================================
+
     public ReservationResponse createReservation(
             ReservationRequest request) {
 
         Authentication authentication =
                 SecurityContextHolder.getContext()
                         .getAuthentication();
+
+        if (authentication == null
+                || !authentication.isAuthenticated()) {
+
+            throw new RuntimeException(
+                    "User is not authenticated");
+        }
 
         String username = authentication.getName();
 
@@ -68,18 +91,17 @@ public class ReservationService {
                                         "Resource not found"));
 
         if (!resource.getAvailable()) {
+
             throw new RuntimeException(
                     "Resource is not available");
         }
 
-        if (!request.getStartTime()
-                .isBefore(request.getEndTime())) {
+        validateReservationTime(
+                request.getStartTime(),
+                request.getEndTime());
 
-            throw new RuntimeException(
-                    "Start time must be before end time");
-        }
-
-        Reservation reservation = new Reservation();
+        Reservation reservation =
+                new Reservation();
 
         reservation.setUser(user);
         reservation.setResource(resource);
@@ -100,19 +122,55 @@ public class ReservationService {
                 LocalDateTime.now());
 
         Reservation savedReservation =
-                reservationRepository.save(reservation);
+                reservationRepository.save(
+                        reservation);
 
-        return convertToResponse(savedReservation);
+        return convertToResponse(
+                savedReservation);
     }
 
-    // USER - GET OWN RESERVATIONS
-    public List<ReservationResponse> getMyReservations() {
+    // =========================================================
+    // USER - GET OWN RESERVATIONS WITH PAGINATION
+    // =========================================================
+
+    public Page<ReservationResponse> getMyReservations(
+            int page,
+            int size) {
+
+        // Validate page number
+        if (page < 0) {
+
+            throw new IllegalArgumentException(
+                    "Page must be zero or greater");
+        }
+
+        // Validate page size
+        if (size < 1) {
+
+            throw new IllegalArgumentException(
+                    "Size must be greater than zero");
+        }
+
+        // Prevent excessively large pages
+        if (size > 100) {
+
+            throw new IllegalArgumentException(
+                    "Size cannot be greater than 100");
+        }
 
         Authentication authentication =
                 SecurityContextHolder.getContext()
                         .getAuthentication();
 
-        String username = authentication.getName();
+        if (authentication == null
+                || !authentication.isAuthenticated()) {
+
+            throw new RuntimeException(
+                    "User is not authenticated");
+        }
+
+        String username =
+                authentication.getName();
 
         User user =
                 userRepository.findByUsername(username)
@@ -120,14 +178,31 @@ public class ReservationService {
                                 new UserNotFoundException(
                                         "User not found"));
 
-        return reservationRepository
-                .findByUserId(user.getId())
-                .stream()
-                .map(this::convertToResponse)
-                .toList();
+        /*
+         * Retrieve only the requested page instead of
+         * loading all reservations for the user.
+         */
+        Pageable pageable =
+                PageRequest.of(
+                        page,
+                        size,
+                        Sort.by(
+                                Sort.Direction.DESC,
+                                "createdAt"));
+
+        Page<Reservation> reservationPage =
+                reservationRepository.findByUserId(
+                        user.getId(),
+                        pageable);
+
+        return reservationPage.map(
+                this::convertToResponse);
     }
 
+    // =========================================================
     // ADMIN - FILTER + PAGINATION + SORTING
+    // =========================================================
+
     public Page<ReservationResponse> getReservations(
             ReservationStatus status,
             BigDecimal minPrice,
@@ -137,16 +212,25 @@ public class ReservationService {
             String sortBy,
             String direction) {
 
-        // Validate page number
+        // Validate page
         if (page < 0) {
-            throw new RuntimeException(
+
+            throw new IllegalArgumentException(
                     "Page must be zero or greater");
         }
 
         // Validate page size
         if (size < 1) {
-            throw new RuntimeException(
+
+            throw new IllegalArgumentException(
                     "Size must be greater than zero");
+        }
+
+        // Prevent excessively large pages
+        if (size > 100) {
+
+            throw new IllegalArgumentException(
+                    "Size cannot be greater than 100");
         }
 
         // Validate price range
@@ -154,34 +238,59 @@ public class ReservationService {
                 && maxPrice != null
                 && minPrice.compareTo(maxPrice) > 0) {
 
-            throw new RuntimeException(
+            throw new IllegalArgumentException(
                     "Minimum price cannot be greater than maximum price");
         }
 
-        // Sorting
-        Sort sort;
+        // =====================================================
+        // SORT FIELD VALIDATION
+        // =====================================================
 
-        if (sortBy != null && !sortBy.isBlank()) {
+        String validatedSortBy =
+                (sortBy == null || sortBy.isBlank())
+                        ? "createdAt"
+                        : sortBy;
 
-            if ("desc".equalsIgnoreCase(direction)) {
+        /*
+         * Whitelist allowed sort fields.
+         */
+        if (!ALLOWED_SORT_FIELDS.contains(
+                validatedSortBy)) {
 
-                sort = Sort.by(
-                        Sort.Direction.DESC,
-                        sortBy);
+            throw new IllegalArgumentException(
+                    "Invalid sort field: "
+                            + validatedSortBy);
+        }
 
-            } else {
+        // =====================================================
+        // SORT DIRECTION
+        // =====================================================
 
-                sort = Sort.by(
-                        Sort.Direction.ASC,
-                        sortBy);
-            }
+        Sort.Direction sortDirection;
+
+        if ("desc".equalsIgnoreCase(direction)) {
+
+            sortDirection =
+                    Sort.Direction.DESC;
+
+        } else if ("asc".equalsIgnoreCase(direction)
+                || direction == null
+                || direction.isBlank()) {
+
+            sortDirection =
+                    Sort.Direction.ASC;
 
         } else {
 
-            sort = Sort.by(
-                    Sort.Direction.DESC,
-                    "createdAt");
+            throw new IllegalArgumentException(
+                    "Invalid sort direction. "
+                            + "Use 'asc' or 'desc'");
         }
+
+        Sort sort =
+                Sort.by(
+                        sortDirection,
+                        validatedSortBy);
 
         Pageable pageable =
                 PageRequest.of(
@@ -189,12 +298,10 @@ public class ReservationService {
                         size,
                         sort);
 
-        /*
-         * Start with a valid no-op Specification.
-         *
-         * This prevents NullPointerException when
-         * specification.and(...) is called.
-         */
+        // =====================================================
+        // SPECIFICATION
+        // =====================================================
+
         Specification<Reservation> specification =
                 (root, query, criteriaBuilder) ->
                         criteriaBuilder.conjunction();
@@ -216,9 +323,10 @@ public class ReservationService {
             specification =
                     specification.and(
                             (root, query, criteriaBuilder) ->
-                                    criteriaBuilder.greaterThanOrEqualTo(
-                                            root.get("price"),
-                                            minPrice));
+                                    criteriaBuilder
+                                            .greaterThanOrEqualTo(
+                                                    root.get("price"),
+                                                    minPrice));
         }
 
         // Filter by maximum price
@@ -227,9 +335,10 @@ public class ReservationService {
             specification =
                     specification.and(
                             (root, query, criteriaBuilder) ->
-                                    criteriaBuilder.lessThanOrEqualTo(
-                                            root.get("price"),
-                                            maxPrice));
+                                    criteriaBuilder
+                                            .lessThanOrEqualTo(
+                                                    root.get("price"),
+                                                    maxPrice));
         }
 
         Page<Reservation> reservationPage =
@@ -241,7 +350,10 @@ public class ReservationService {
                 this::convertToResponse);
     }
 
+    // =========================================================
     // UPDATE RESERVATION
+    // =========================================================
+
     public ReservationResponse updateReservation(
             Long id,
             ReservationRequest request,
@@ -253,12 +365,9 @@ public class ReservationService {
                                 new ReservationNotFoundException(
                                         "Reservation not found"));
 
-        if (!request.getStartTime()
-                .isBefore(request.getEndTime())) {
-
-            throw new RuntimeException(
-                    "Start time must be before end time");
-        }
+        validateReservationTime(
+                request.getStartTime(),
+                request.getEndTime());
 
         reservation.setStartTime(
                 request.getStartTime());
@@ -269,15 +378,24 @@ public class ReservationService {
         reservation.setPrice(
                 request.getPrice());
 
-        reservation.setStatus(status);
+        if (status != null) {
+
+            reservation.setStatus(
+                    status);
+        }
 
         Reservation updatedReservation =
-                reservationRepository.save(reservation);
+                reservationRepository.save(
+                        reservation);
 
-        return convertToResponse(updatedReservation);
+        return convertToResponse(
+                updatedReservation);
     }
 
+    // =========================================================
     // DELETE RESERVATION
+    // =========================================================
+
     public void deleteReservation(Long id) {
 
         Reservation reservation =
@@ -286,10 +404,36 @@ public class ReservationService {
                                 new ReservationNotFoundException(
                                         "Reservation not found"));
 
-        reservationRepository.delete(reservation);
+        reservationRepository.delete(
+                reservation);
     }
 
+    // =========================================================
+    // VALIDATE RESERVATION TIME
+    // =========================================================
+
+    private void validateReservationTime(
+            LocalDateTime startTime,
+            LocalDateTime endTime) {
+
+        if (startTime == null
+                || endTime == null) {
+
+            throw new IllegalArgumentException(
+                    "Start time and end time are required");
+        }
+
+        if (!startTime.isBefore(endTime)) {
+
+            throw new IllegalArgumentException(
+                    "Start time must be before end time");
+        }
+    }
+
+    // =========================================================
     // CONVERT ENTITY TO RESPONSE DTO
+    // =========================================================
+
     private ReservationResponse convertToResponse(
             Reservation reservation) {
 
@@ -300,10 +444,12 @@ public class ReservationService {
                 reservation.getId());
 
         response.setResourceId(
-                reservation.getResource().getId());
+                reservation.getResource()
+                        .getId());
 
         response.setUserId(
-                reservation.getUser().getId());
+                reservation.getUser()
+                        .getId());
 
         response.setStartTime(
                 reservation.getStartTime());
@@ -320,3 +466,4 @@ public class ReservationService {
         return response;
     }
 }
+

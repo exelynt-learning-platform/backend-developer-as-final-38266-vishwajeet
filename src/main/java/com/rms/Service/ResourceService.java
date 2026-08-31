@@ -1,322 +1,67 @@
 
 package com.rms.Service;
 
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import com.rms.Enums.ReservationStatus;
-import com.rms.Repository.ReservationRepository;
-import com.rms.Repository.ResourceRepository;
-import com.rms.Repository.UserRepository;
-import com.rms.dto.ReservationRequest;
-import com.rms.dto.ReservationResponse;
-import com.rms.entity.Reservation;
-import com.rms.entity.Resource;
-import com.rms.entity.User;
-import com.rms.Exception.ReservationNotFoundException;
 import com.rms.Exception.ResourceNotFoundException;
-import com.rms.Exception.UserNotFoundException;
+import com.rms.Repository.ResourceRepository;
+import com.rms.entity.Resource;
 
 @Service
-public class ReservationService {
+public class ResourceService {
 
-    private final ReservationRepository reservationRepository;
     private final ResourceRepository resourceRepository;
-    private final UserRepository userRepository;
 
-    public ReservationService(
-            ReservationRepository reservationRepository,
-            ResourceRepository resourceRepository,
-            UserRepository userRepository) {
-
-        this.reservationRepository = reservationRepository;
+    public ResourceService(ResourceRepository resourceRepository) {
         this.resourceRepository = resourceRepository;
-        this.userRepository = userRepository;
     }
 
-    // CREATE RESERVATION
-    public ReservationResponse createReservation(
-            ReservationRequest request) {
+    // CREATE RESOURCE
+    public Resource createResource(Resource resource) {
+        return resourceRepository.save(resource);
+    }
 
-        Authentication authentication =
-                SecurityContextHolder.getContext()
-                        .getAuthentication();
+    // GET ALL RESOURCES
+    public List<Resource> getAllResources() {
+        return resourceRepository.findAll();
+    }
 
-        String username = authentication.getName();
+    // GET RESOURCE BY ID
+    public Resource getResourceById(Long id) {
+        return resourceRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Resource not found with id: " + id));
+    }
 
-        User user =
-                userRepository.findByUsername(username)
-                        .orElseThrow(() ->
-                                new UserNotFoundException(
-                                        "User not found"));
+    // UPDATE RESOURCE
+    public Resource updateResource(Long id, Resource resourceDetails) {
 
-        Resource resource =
-                resourceRepository.findById(
-                        request.getResourceId())
+        Resource existingResource =
+                resourceRepository.findById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
-                                        "Resource not found"));
+                                        "Resource not found with id: " + id));
 
-        if (!resource.getAvailable()) {
-            throw new RuntimeException(
-                    "Resource is not available");
-        }
+        existingResource.setName(resourceDetails.getName());
+        existingResource.setDescription(resourceDetails.getDescription());
+        existingResource.setAvailable(resourceDetails.getAvailable());
 
-        if (!request.getStartTime()
-                .isBefore(request.getEndTime())) {
-
-            throw new RuntimeException(
-                    "Start time must be before end time");
-        }
-
-        Reservation reservation = new Reservation();
-
-        reservation.setUser(user);
-        reservation.setResource(resource);
-
-        reservation.setStartTime(
-                request.getStartTime());
-
-        reservation.setEndTime(
-                request.getEndTime());
-
-        reservation.setPrice(
-                request.getPrice());
-
-        reservation.setStatus(
-                ReservationStatus.PENDING);
-
-        reservation.setCreatedAt(
-                LocalDateTime.now());
-
-        Reservation savedReservation =
-                reservationRepository.save(reservation);
-
-        return convertToResponse(savedReservation);
+        return resourceRepository.save(existingResource);
     }
 
-    // USER - GET OWN RESERVATIONS
-    public List<ReservationResponse> getMyReservations() {
+    // DELETE RESOURCE
+    public void deleteResource(Long id) {
 
-        Authentication authentication =
-                SecurityContextHolder.getContext()
-                        .getAuthentication();
-
-        String username = authentication.getName();
-
-        User user =
-                userRepository.findByUsername(username)
+        Resource resource =
+                resourceRepository.findById(id)
                         .orElseThrow(() ->
-                                new UserNotFoundException(
-                                        "User not found"));
+                                new ResourceNotFoundException(
+                                        "Resource not found with id: " + id));
 
-        return reservationRepository
-                .findByUserId(user.getId())
-                .stream()
-                .map(this::convertToResponse)
-                .toList();
-    }
-
-    // ADMIN - FILTER + PAGINATION + SORTING
-    public Page<ReservationResponse> getReservations(
-            ReservationStatus status,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            int page,
-            int size,
-            String sortBy,
-            String direction) {
-
-        // Validate page number
-        if (page < 0) {
-            throw new RuntimeException(
-                    "Page must be zero or greater");
-        }
-
-        // Validate page size
-        if (size < 1) {
-            throw new RuntimeException(
-                    "Size must be greater than zero");
-        }
-
-        // Validate price range
-        if (minPrice != null
-                && maxPrice != null
-                && minPrice.compareTo(maxPrice) > 0) {
-
-            throw new RuntimeException(
-                    "Minimum price cannot be greater than maximum price");
-        }
-
-        // Sorting
-        Sort sort;
-
-        if (sortBy != null && !sortBy.isBlank()) {
-
-            if ("desc".equalsIgnoreCase(direction)) {
-
-                sort = Sort.by(
-                        Sort.Direction.DESC,
-                        sortBy);
-
-            } else {
-
-                sort = Sort.by(
-                        Sort.Direction.ASC,
-                        sortBy);
-            }
-
-        } else {
-
-            sort = Sort.by(
-                    Sort.Direction.DESC,
-                    "createdAt");
-        }
-
-        Pageable pageable =
-                PageRequest.of(
-                        page,
-                        size,
-                        sort);
-
-        /*
-         * Start with a valid no-op Specification.
-         *
-         * This prevents NullPointerException when
-         * specification.and(...) is called.
-         */
-        Specification<Reservation> specification =
-                (root, query, criteriaBuilder) ->
-                        criteriaBuilder.conjunction();
-
-        // Filter by status
-        if (status != null) {
-
-            specification =
-                    specification.and(
-                            (root, query, criteriaBuilder) ->
-                                    criteriaBuilder.equal(
-                                            root.get("status"),
-                                            status));
-        }
-
-        // Filter by minimum price
-        if (minPrice != null) {
-
-            specification =
-                    specification.and(
-                            (root, query, criteriaBuilder) ->
-                                    criteriaBuilder.greaterThanOrEqualTo(
-                                            root.get("price"),
-                                            minPrice));
-        }
-
-        // Filter by maximum price
-        if (maxPrice != null) {
-
-            specification =
-                    specification.and(
-                            (root, query, criteriaBuilder) ->
-                                    criteriaBuilder.lessThanOrEqualTo(
-                                            root.get("price"),
-                                            maxPrice));
-        }
-
-        Page<Reservation> reservationPage =
-                reservationRepository.findAll(
-                        specification,
-                        pageable);
-
-        return reservationPage.map(
-                this::convertToResponse);
-    }
-
-    // UPDATE RESERVATION
-    public ReservationResponse updateReservation(
-            Long id,
-            ReservationRequest request,
-            ReservationStatus status) {
-
-        Reservation reservation =
-                reservationRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ReservationNotFoundException(
-                                        "Reservation not found"));
-
-        if (!request.getStartTime()
-                .isBefore(request.getEndTime())) {
-
-            throw new RuntimeException(
-                    "Start time must be before end time");
-        }
-
-        reservation.setStartTime(
-                request.getStartTime());
-
-        reservation.setEndTime(
-                request.getEndTime());
-
-        reservation.setPrice(
-                request.getPrice());
-
-        reservation.setStatus(status);
-
-        Reservation updatedReservation =
-                reservationRepository.save(reservation);
-
-        return convertToResponse(updatedReservation);
-    }
-
-    // DELETE RESERVATION
-    public void deleteReservation(Long id) {
-
-        Reservation reservation =
-                reservationRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ReservationNotFoundException(
-                                        "Reservation not found"));
-
-        reservationRepository.delete(reservation);
-    }
-
-    // CONVERT ENTITY TO RESPONSE DTO
-    private ReservationResponse convertToResponse(
-            Reservation reservation) {
-
-        ReservationResponse response =
-                new ReservationResponse();
-
-        response.setId(
-                reservation.getId());
-
-        response.setResourceId(
-                reservation.getResource().getId());
-
-        response.setUserId(
-                reservation.getUser().getId());
-
-        response.setStartTime(
-                reservation.getStartTime());
-
-        response.setEndTime(
-                reservation.getEndTime());
-
-        response.setPrice(
-                reservation.getPrice());
-
-        response.setStatus(
-                reservation.getStatus());
-
-        return response;
+        resourceRepository.delete(resource);
     }
 }
+

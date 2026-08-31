@@ -3,11 +3,14 @@ package com.rms.config;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -19,23 +22,49 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.rms.Security.JwtAuthenticationFilter;
+import com.rms.Service.CustomUserDetailsService;
 
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final CustomUserDetailsService customUserDetailsService;
+
+    @Value("${app.cors.allowed-origin:http://localhost:4200}")
+    private String allowedOrigin;
 
     public SecurityConfig(
-            JwtAuthenticationFilter jwtAuthenticationFilter) {
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            CustomUserDetailsService customUserDetailsService) {
 
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.customUserDetailsService = customUserDetailsService;
     }
 
+    // PASSWORD ENCODER
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    // AUTHENTICATION PROVIDER
+    @Bean
+    public AuthenticationProvider authenticationProvider() {
+
+        DaoAuthenticationProvider provider =
+                new DaoAuthenticationProvider();
+
+        provider.setUserDetailsService(
+                customUserDetailsService);
+
+        provider.setPasswordEncoder(
+                passwordEncoder());
+
+        return provider;
+    }
+
+    // AUTHENTICATION MANAGER
     @Bean
     public AuthenticationManager authenticationManager(
             AuthenticationConfiguration configuration)
@@ -44,36 +73,36 @@ public class SecurityConfig {
         return configuration.getAuthenticationManager();
     }
 
-    /*
-     * CORS configuration
-     */
+    // CORS CONFIGURATION
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration configuration =
                 new CorsConfiguration();
 
+        // Configurable through environment variable
         configuration.setAllowedOrigins(
-                List.of("http://localhost:4200")
-        );
+                List.of(allowedOrigin));
 
         configuration.setAllowedMethods(
                 List.of(
                         "GET",
                         "POST",
                         "PUT",
+                        "PATCH",
                         "DELETE",
-                        "OPTIONS"
-                )
-        );
+                        "OPTIONS"));
 
         configuration.setAllowedHeaders(
                 List.of(
                         "Authorization",
-                        "Content-Type"
-                )
-        );
+                        "Content-Type",
+                        "Accept"));
 
+        /*
+         * Credentials are enabled only for the configured
+         * frontend origin. Do NOT use "*" with credentials.
+         */
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source =
@@ -81,115 +110,75 @@ public class SecurityConfig {
 
         source.registerCorsConfiguration(
                 "/**",
-                configuration
-        );
+                configuration);
 
         return source;
     }
 
+    // SECURITY FILTER CHAIN
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http)
             throws Exception {
 
         http
+            // Enable our CORS configuration
+            .cors(cors ->
+                    cors.configurationSource(
+                            corsConfigurationSource()))
 
-            
-                .cors(cors -> {})
+            // Disable CSRF because this is a stateless REST API
+            .csrf(csrf -> csrf.disable())
 
-                .csrf(csrf -> csrf.disable())
+            // JWT authentication is stateless
+            .sessionManagement(session ->
+                    session.sessionCreationPolicy(
+                            SessionCreationPolicy.STATELESS))
 
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(
-                                SessionCreationPolicy.STATELESS
-                        )
-                )
+            // Authentication provider
+            .authenticationProvider(
+                    authenticationProvider())
 
-                .authorizeHttpRequests(auth -> auth
+            // Authorization rules
+            .authorizeHttpRequests(auth -> auth
 
+                    // Authentication endpoint
+                    .requestMatchers(
+                            "/auth/login")
+                    .permitAll()
 
-                        .requestMatchers(
-                                "/auth/**"
-                        ).permitAll()
+                    // Swagger / OpenAPI
+                    .requestMatchers(
+                            "/swagger-ui/**",
+                            "/swagger-ui.html",
+                            "/v3/api-docs/**")
+                    .permitAll()
 
-                        .requestMatchers(
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/v3/api-docs/**"
-                        ).permitAll()
+                    // ADMIN only
+                    .requestMatchers(
+                            "/api/admin/**")
+                    .hasRole("ADMIN")
 
-                     
-                        .requestMatchers(
-                                HttpMethod.GET,
-                                "/api/resources/**"
-                        ).hasAnyRole(
-                                "USER",
-                                "ADMIN"
-                        )
+                    // Resources
+                    .requestMatchers(
+                            "/api/resources/**")
+                    .hasAnyRole("ADMIN", "USER")
 
-                       
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/resources/**"
-                        ).hasRole("ADMIN")
+                    // Reservations
+                    .requestMatchers(
+                            "/api/reservations/**")
+                    .hasAnyRole("ADMIN", "USER")
 
-                       
-                        .requestMatchers(
-                                HttpMethod.PUT,
-                                "/api/resources/**"
-                        ).hasRole("ADMIN")
+                    // Any other request requires authentication
+                    .anyRequest()
+                    .authenticated())
 
-                        
-                        .requestMatchers(
-                                HttpMethod.DELETE,
-                                "/api/resources/**"
-                        ).hasRole("ADMIN")
-
-                      
-                        .requestMatchers(
-                                HttpMethod.GET,
-                                "/api/reservations/my"
-                        ).hasAnyRole(
-                                "USER",
-                                "ADMIN"
-                        )
-
-
-                        .requestMatchers(
-                                HttpMethod.GET,
-                                "/api/reservations"
-                        ).hasRole("ADMIN")
-
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/reservations"
-                        ).hasAnyRole(
-                                "USER",
-                                "ADMIN"
-                        )
-
-                      
-                        .requestMatchers(
-                                HttpMethod.PUT,
-                                "/api/reservations/**"
-                        ).hasRole("ADMIN")
-
-                     
-                        .requestMatchers(
-                                HttpMethod.DELETE,
-                                "/api/reservations/**"
-                        ).hasRole("ADMIN")
-
-                    
-                        .anyRequest().authenticated()
-                )
-
-                
-                .addFilterBefore(
-                        jwtAuthenticationFilter,
-                        UsernamePasswordAuthenticationFilter.class
-                );
+            // JWT filter
+            .addFilterBefore(
+                    jwtAuthenticationFilter,
+                    UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 }
+
