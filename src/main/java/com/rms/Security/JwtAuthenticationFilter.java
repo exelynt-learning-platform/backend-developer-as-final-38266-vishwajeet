@@ -36,29 +36,67 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain)
             throws ServletException, IOException {
 
-        String authHeader = request.getHeader("Authorization");
+        String authHeader =
+                request.getHeader("Authorization");
 
-        String username = null;
-        String jwt = null;
-
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-
-            jwt = authHeader.substring(7);
-
-            try {
-                username = jwtService.extractUsername(jwt);
-            } catch (Exception e) {
-                // Invalid token
-            }
+        // No Authorization header
+        // Let Spring Security handle authentication/authorization.
+        if (authHeader == null || authHeader.isBlank()) {
+            filterChain.doFilter(request, response);
+            return;
         }
 
-        if (username != null &&
-                SecurityContextHolder.getContext().getAuthentication() == null) {
+        // Authorization header exists but is not Bearer
+        if (!authHeader.startsWith("Bearer ")) {
+            sendUnauthorizedResponse(
+                    response,
+                    "Invalid Authorization header");
+            return;
+        }
 
-            UserDetails userDetails =
-                    userDetailsService.loadUserByUsername(username);
+        String jwt = authHeader.substring(7).trim();
 
-            if (jwtService.isTokenValid(jwt, userDetails)) {
+        // Empty Bearer token
+        if (jwt.isEmpty()) {
+            sendUnauthorizedResponse(
+                    response,
+                    "JWT token is missing");
+            return;
+        }
+
+        try {
+
+            String username =
+                    jwtService.extractUsername(jwt);
+
+            if (username == null || username.isBlank()) {
+                sendUnauthorizedResponse(
+                        response,
+                        "Invalid JWT token");
+                return;
+            }
+
+            /*
+             * Only authenticate if there is no existing
+             * authentication in the SecurityContext.
+             */
+            if (SecurityContextHolder
+                    .getContext()
+                    .getAuthentication() == null) {
+
+                UserDetails userDetails =
+                        userDetailsService
+                                .loadUserByUsername(username);
+
+                if (!jwtService.isTokenValid(
+                        jwt,
+                        userDetails)) {
+
+                    sendUnauthorizedResponse(
+                            response,
+                            "Invalid or expired JWT token");
+                    return;
+                }
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
@@ -72,13 +110,44 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 .buildDetails(request)
                 );
 
-                SecurityContextHolder.getContext()
+                SecurityContextHolder
+                        .getContext()
                         .setAuthentication(authentication);
             }
-        }
 
-        filterChain.doFilter(request, response);
+            // JWT is valid
+            filterChain.doFilter(request, response);
+
+        } catch (Exception e) {
+
+            /*
+             * JWT processing failed.
+             *
+             * Do NOT continue the filter chain.
+             * Return HTTP 401 Unauthorized.
+             */
+            SecurityContextHolder
+                    .clearContext();
+
+            sendUnauthorizedResponse(
+                    response,
+                    "Invalid or expired JWT token");
+        }
+    }
+
+    private void sendUnauthorizedResponse(
+            HttpServletResponse response,
+            String message)
+            throws IOException {
+
+        response.setStatus(
+                HttpServletResponse.SC_UNAUTHORIZED);
+
+        response.setContentType(
+                "application/json");
+
+        response.getWriter().write(
+                "{\"error\":\"" + message + "\"}"
+        );
     }
 }
-
-

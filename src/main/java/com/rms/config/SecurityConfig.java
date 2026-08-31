@@ -1,7 +1,11 @@
+
 package com.rms.config;
+
+import java.util.List;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -10,6 +14,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.rms.Security.JwtAuthenticationFilter;
 
@@ -18,7 +25,9 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter) {
+
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
@@ -35,12 +44,59 @@ public class SecurityConfig {
         return configuration.getAuthenticationManager();
     }
 
+    /*
+     * CORS configuration
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+
+        CorsConfiguration configuration =
+                new CorsConfiguration();
+
+        configuration.setAllowedOrigins(
+                List.of("http://localhost:4200")
+        );
+
+        configuration.setAllowedMethods(
+                List.of(
+                        "GET",
+                        "POST",
+                        "PUT",
+                        "DELETE",
+                        "OPTIONS"
+                )
+        );
+
+        configuration.setAllowedHeaders(
+                List.of(
+                        "Authorization",
+                        "Content-Type"
+                )
+        );
+
+        configuration.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        source.registerCorsConfiguration(
+                "/**",
+                configuration
+        );
+
+        return source;
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http)
             throws Exception {
 
         http
+
+            
+                .cors(cors -> {})
+
                 .csrf(csrf -> csrf.disable())
 
                 .sessionManagement(session ->
@@ -51,7 +107,10 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        .requestMatchers("/auth/**").permitAll()
+
+                        .requestMatchers(
+                                "/auth/**"
+                        ).permitAll()
 
                         .requestMatchers(
                                 "/swagger-ui/**",
@@ -59,32 +118,73 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                         ).permitAll()
 
+                     
                         .requestMatchers(
-                                org.springframework.http.HttpMethod.GET,
+                                HttpMethod.GET,
                                 "/api/resources/**"
-                        ).hasAnyRole("USER", "ADMIN")
+                        ).hasAnyRole(
+                                "USER",
+                                "ADMIN"
+                        )
 
+                       
                         .requestMatchers(
+                                HttpMethod.POST,
                                 "/api/resources/**"
                         ).hasRole("ADMIN")
 
+                       
                         .requestMatchers(
-                                org.springframework.http.HttpMethod.POST,
-                                "/api/reservations/**"
-                        ).hasAnyRole("USER", "ADMIN")
+                                HttpMethod.PUT,
+                                "/api/resources/**"
+                        ).hasRole("ADMIN")
+
+                        
+                        .requestMatchers(
+                                HttpMethod.DELETE,
+                                "/api/resources/**"
+                        ).hasRole("ADMIN")
+
+                      
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/reservations/my"
+                        ).hasAnyRole(
+                                "USER",
+                                "ADMIN"
+                        )
+
 
                         .requestMatchers(
-                                org.springframework.http.HttpMethod.GET,
-                                "/api/reservations/**"
-                        ).hasAnyRole("USER", "ADMIN")
+                                HttpMethod.GET,
+                                "/api/reservations"
+                        ).hasRole("ADMIN")
 
                         .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/reservations"
+                        ).hasAnyRole(
+                                "USER",
+                                "ADMIN"
+                        )
+
+                      
+                        .requestMatchers(
+                                HttpMethod.PUT,
                                 "/api/reservations/**"
                         ).hasRole("ADMIN")
 
+                     
+                        .requestMatchers(
+                                HttpMethod.DELETE,
+                                "/api/reservations/**"
+                        ).hasRole("ADMIN")
+
+                    
                         .anyRequest().authenticated()
                 )
 
+                
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class

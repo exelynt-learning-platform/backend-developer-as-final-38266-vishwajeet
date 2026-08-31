@@ -1,3 +1,4 @@
+
 package com.rms.Service;
 
 import java.math.BigDecimal;
@@ -81,7 +82,6 @@ public class ReservationService {
         Reservation reservation = new Reservation();
 
         reservation.setUser(user);
-
         reservation.setResource(resource);
 
         reservation.setStartTime(
@@ -127,16 +127,6 @@ public class ReservationService {
                 .toList();
     }
 
-    // ADMIN - GET ALL RESERVATIONS
-    public List<ReservationResponse> getAllReservations() {
-
-        return reservationRepository
-                .findAll()
-                .stream()
-                .map(this::convertToResponse)
-                .toList();
-    }
-
     // ADMIN - FILTER + PAGINATION + SORTING
     public Page<ReservationResponse> getReservations(
             ReservationStatus status,
@@ -147,16 +137,19 @@ public class ReservationService {
             String sortBy,
             String direction) {
 
+        // Validate page number
         if (page < 0) {
             throw new RuntimeException(
                     "Page must be zero or greater");
         }
 
+        // Validate page size
         if (size < 1) {
             throw new RuntimeException(
                     "Size must be greater than zero");
         }
 
+        // Validate price range
         if (minPrice != null
                 && maxPrice != null
                 && minPrice.compareTo(maxPrice) > 0) {
@@ -165,6 +158,7 @@ public class ReservationService {
                     "Minimum price cannot be greater than maximum price");
         }
 
+        // Sorting
         Sort sort;
 
         if (sortBy != null && !sortBy.isBlank()) {
@@ -195,9 +189,17 @@ public class ReservationService {
                         size,
                         sort);
 
+        /*
+         * Start with a valid no-op Specification.
+         *
+         * This prevents NullPointerException when
+         * specification.and(...) is called.
+         */
         Specification<Reservation> specification =
-                (root, query, criteriaBuilder) -> null;
+                (root, query, criteriaBuilder) ->
+                        criteriaBuilder.conjunction();
 
+        // Filter by status
         if (status != null) {
 
             specification =
@@ -208,6 +210,7 @@ public class ReservationService {
                                             status));
         }
 
+        // Filter by minimum price
         if (minPrice != null) {
 
             specification =
@@ -218,6 +221,7 @@ public class ReservationService {
                                             minPrice));
         }
 
+        // Filter by maximum price
         if (maxPrice != null) {
 
             specification =
@@ -237,7 +241,7 @@ public class ReservationService {
                 this::convertToResponse);
     }
 
- 
+    // UPDATE RESERVATION
     public ReservationResponse updateReservation(
             Long id,
             ReservationRequest request,
@@ -272,7 +276,8 @@ public class ReservationService {
 
         return convertToResponse(updatedReservation);
     }
-   
+
+    // DELETE RESERVATION
     public void deleteReservation(Long id) {
 
         Reservation reservation =
@@ -284,6 +289,7 @@ public class ReservationService {
         reservationRepository.delete(reservation);
     }
 
+    // CONVERT ENTITY TO RESPONSE DTO
     private ReservationResponse convertToResponse(
             Reservation reservation) {
 
