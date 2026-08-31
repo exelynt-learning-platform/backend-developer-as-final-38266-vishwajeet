@@ -4,9 +4,11 @@ package com.rms.Service;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.rms.Exception.ResourceNotFoundException;
 import com.rms.Repository.ResourceRepository;
+import com.rms.dto.ResourceRequest;
 import com.rms.entity.Resource;
 
 @Service
@@ -14,54 +16,93 @@ public class ResourceService {
 
     private final ResourceRepository resourceRepository;
 
-    public ResourceService(ResourceRepository resourceRepository) {
-        this.resourceRepository = resourceRepository;
+    public ResourceService(
+            ResourceRepository resourceRepository) {
+
+        this.resourceRepository =
+                resourceRepository;
     }
 
-    // CREATE RESOURCE
-    public Resource createResource(Resource resource) {
-        return resourceRepository.save(resource);
+    // CREATE
+    @Transactional
+    public Resource createResource(
+            ResourceRequest request) {
+
+        if (request == null) {
+            throw new IllegalArgumentException(
+                    "Resource request is required");
+        }
+
+        Resource resource =
+                new Resource();
+
+        resource.setName(
+                request.getName());
+
+        resource.setDescription(
+                request.getDescription());
+
+        resource.setAvailable(
+                request.getAvailable());
+
+        return resourceRepository.save(
+                resource);
     }
 
-    // GET ALL RESOURCES
-    public List<Resource> getAllResources() {
-        return resourceRepository.findAll();
-    }
+    // GET BY ID
+    public Resource getResourceById(
+            Long id) {
 
-    // GET RESOURCE BY ID
-    public Resource getResourceById(Long id) {
         return resourceRepository.findById(id)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
-                                "Resource not found with id: " + id));
+                                "Resource not found"));
     }
 
-    // UPDATE RESOURCE
-    public Resource updateResource(Long id, Resource resourceDetails) {
+    // GET ALL
+    public List<Resource> getAllResources() {
 
-        Resource existingResource =
-                resourceRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Resource not found with id: " + id));
-
-        existingResource.setName(resourceDetails.getName());
-        existingResource.setDescription(resourceDetails.getDescription());
-        existingResource.setAvailable(resourceDetails.getAvailable());
-
-        return resourceRepository.save(existingResource);
+        return resourceRepository.findAll();
     }
 
-    // DELETE RESOURCE
-    public void deleteResource(Long id) {
+    // UPDATE
+    @Transactional
+    public Resource updateResource(
+            Long id,
+            ResourceRequest request) {
 
         Resource resource =
                 resourceRepository.findById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
-                                        "Resource not found with id: " + id));
+                                        "Resource not found"));
 
-        resourceRepository.delete(resource);
+        resource.setName(
+                request.getName());
+
+        resource.setDescription(
+                request.getDescription());
+
+        resource.setAvailable(
+                request.getAvailable());
+
+        return resourceRepository.save(
+                resource);
+    }
+
+    // DELETE
+    @Transactional
+    public void deleteResource(
+            Long id) {
+
+        Resource resource =
+                resourceRepository.findById(id)
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Resource not found"));
+
+        resourceRepository.delete(
+                resource);
     }
 }
 

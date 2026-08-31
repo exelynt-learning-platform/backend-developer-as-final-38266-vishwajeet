@@ -3,7 +3,6 @@ package com.rms.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Set;
 
 import org.springframework.data.domain.Page;
@@ -14,6 +13,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.rms.Enums.ReservationStatus;
 import com.rms.Exception.ReservationNotFoundException;
@@ -35,17 +35,16 @@ public class ReservationService {
     private final ResourceRepository resourceRepository;
     private final UserRepository userRepository;
 
-    /*
-     * Only these Reservation entity fields are allowed
-     * for sorting.
-     */
-    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of(
-            "id",
-            "startTime",
-            "endTime",
-            "price",
-            "createdAt"
-    );
+    private static final int MAX_PAGE_SIZE = 100;
+
+    private static final Set<String> ALLOWED_SORT_FIELDS =
+            Set.of(
+                    "status",
+                    "price",
+                    "startTime",
+                    "endTime",
+                    "createdAt"
+            );
 
     public ReservationService(
             ReservationRepository reservationRepository,
@@ -61,27 +60,20 @@ public class ReservationService {
     // CREATE RESERVATION
     // =========================================================
 
+    @Transactional
     public ReservationResponse createReservation(
             ReservationRequest request) {
 
-        Authentication authentication =
-                SecurityContextHolder.getContext()
-                        .getAuthentication();
-
-        if (authentication == null
-                || !authentication.isAuthenticated()) {
-
-            throw new RuntimeException(
-                    "User is not authenticated");
+        if (request == null) {
+            throw new IllegalArgumentException(
+                    "Reservation request is required");
         }
 
-        String username = authentication.getName();
+        validateReservationTime(
+                request.getStartTime(),
+                request.getEndTime());
 
-        User user =
-                userRepository.findByUsername(username)
-                        .orElseThrow(() ->
-                                new UserNotFoundException(
-                                        "User not found"));
+        User user = getAuthenticatedUser();
 
         Resource resource =
                 resourceRepository.findById(
@@ -91,33 +83,23 @@ public class ReservationService {
                                         "Resource not found"));
 
         if (!resource.getAvailable()) {
-
-            throw new RuntimeException(
+            throw new IllegalArgumentException(
                     "Resource is not available");
         }
-
-        validateReservationTime(
-                request.getStartTime(),
-                request.getEndTime());
 
         Reservation reservation =
                 new Reservation();
 
         reservation.setUser(user);
         reservation.setResource(resource);
-
         reservation.setStartTime(
                 request.getStartTime());
-
         reservation.setEndTime(
                 request.getEndTime());
-
         reservation.setPrice(
                 request.getPrice());
-
         reservation.setStatus(
                 ReservationStatus.PENDING);
-
         reservation.setCreatedAt(
                 LocalDateTime.now());
 
@@ -130,58 +112,18 @@ public class ReservationService {
     }
 
     // =========================================================
-    // USER - GET OWN RESERVATIONS WITH PAGINATION
+    // USER - GET OWN RESERVATIONS
+    // PAGINATION
     // =========================================================
 
     public Page<ReservationResponse> getMyReservations(
             int page,
             int size) {
 
-        // Validate page number
-        if (page < 0) {
+        validatePagination(page, size);
 
-            throw new IllegalArgumentException(
-                    "Page must be zero or greater");
-        }
+        User user = getAuthenticatedUser();
 
-        // Validate page size
-        if (size < 1) {
-
-            throw new IllegalArgumentException(
-                    "Size must be greater than zero");
-        }
-
-        // Prevent excessively large pages
-        if (size > 100) {
-
-            throw new IllegalArgumentException(
-                    "Size cannot be greater than 100");
-        }
-
-        Authentication authentication =
-                SecurityContextHolder.getContext()
-                        .getAuthentication();
-
-        if (authentication == null
-                || !authentication.isAuthenticated()) {
-
-            throw new RuntimeException(
-                    "User is not authenticated");
-        }
-
-        String username =
-                authentication.getName();
-
-        User user =
-                userRepository.findByUsername(username)
-                        .orElseThrow(() ->
-                                new UserNotFoundException(
-                                        "User not found"));
-
-        /*
-         * Retrieve only the requested page instead of
-         * loading all reservations for the user.
-         */
         Pageable pageable =
                 PageRequest.of(
                         page,
@@ -190,17 +132,18 @@ public class ReservationService {
                                 Sort.Direction.DESC,
                                 "createdAt"));
 
-        Page<Reservation> reservationPage =
+        Page<Reservation> reservations =
                 reservationRepository.findByUserId(
                         user.getId(),
                         pageable);
 
-        return reservationPage.map(
+        return reservations.map(
                 this::convertToResponse);
     }
 
     // =========================================================
-    // ADMIN - FILTER + PAGINATION + SORTING
+    // ADMIN - GET ALL RESERVATIONS
+    // FILTER + PAGINATION + SORTING
     // =========================================================
 
     public Page<ReservationResponse> getReservations(
@@ -212,28 +155,8 @@ public class ReservationService {
             String sortBy,
             String direction) {
 
-        // Validate page
-        if (page < 0) {
+        validatePagination(page, size);
 
-            throw new IllegalArgumentException(
-                    "Page must be zero or greater");
-        }
-
-        // Validate page size
-        if (size < 1) {
-
-            throw new IllegalArgumentException(
-                    "Size must be greater than zero");
-        }
-
-        // Prevent excessively large pages
-        if (size > 100) {
-
-            throw new IllegalArgumentException(
-                    "Size cannot be greater than 100");
-        }
-
-        // Validate price range
         if (minPrice != null
                 && maxPrice != null
                 && minPrice.compareTo(maxPrice) > 0) {
@@ -242,50 +165,11 @@ public class ReservationService {
                     "Minimum price cannot be greater than maximum price");
         }
 
-        // =====================================================
-        // SORT FIELD VALIDATION
-        // =====================================================
-
         String validatedSortBy =
-                (sortBy == null || sortBy.isBlank())
-                        ? "createdAt"
-                        : sortBy;
+                validateSortField(sortBy);
 
-        /*
-         * Whitelist allowed sort fields.
-         */
-        if (!ALLOWED_SORT_FIELDS.contains(
-                validatedSortBy)) {
-
-            throw new IllegalArgumentException(
-                    "Invalid sort field: "
-                            + validatedSortBy);
-        }
-
-        // =====================================================
-        // SORT DIRECTION
-        // =====================================================
-
-        Sort.Direction sortDirection;
-
-        if ("desc".equalsIgnoreCase(direction)) {
-
-            sortDirection =
-                    Sort.Direction.DESC;
-
-        } else if ("asc".equalsIgnoreCase(direction)
-                || direction == null
-                || direction.isBlank()) {
-
-            sortDirection =
-                    Sort.Direction.ASC;
-
-        } else {
-
-            throw new IllegalArgumentException(
-                    "Invalid sort direction. "
-                            + "Use 'asc' or 'desc'");
-        }
+        Sort.Direction sortDirection =
+                validateSortDirection(direction);
 
         Sort sort =
                 Sort.by(
@@ -298,15 +182,10 @@ public class ReservationService {
                         size,
                         sort);
 
-        // =====================================================
-        // SPECIFICATION
-        // =====================================================
-
         Specification<Reservation> specification =
                 (root, query, criteriaBuilder) ->
                         criteriaBuilder.conjunction();
 
-        // Filter by status
         if (status != null) {
 
             specification =
@@ -317,7 +196,6 @@ public class ReservationService {
                                             status));
         }
 
-        // Filter by minimum price
         if (minPrice != null) {
 
             specification =
@@ -329,7 +207,6 @@ public class ReservationService {
                                                     minPrice));
         }
 
-        // Filter by maximum price
         if (maxPrice != null) {
 
             specification =
@@ -354,16 +231,24 @@ public class ReservationService {
     // UPDATE RESERVATION
     // =========================================================
 
+    @Transactional
     public ReservationResponse updateReservation(
             Long id,
             ReservationRequest request,
             ReservationStatus status) {
+
+        if (request == null) {
+            throw new IllegalArgumentException(
+                    "Reservation request is required");
+        }
 
         Reservation reservation =
                 reservationRepository.findById(id)
                         .orElseThrow(() ->
                                 new ReservationNotFoundException(
                                         "Reservation not found"));
+
+        validateOwnership(reservation);
 
         validateReservationTime(
                 request.getStartTime(),
@@ -379,9 +264,7 @@ public class ReservationService {
                 request.getPrice());
 
         if (status != null) {
-
-            reservation.setStatus(
-                    status);
+            reservation.setStatus(status);
         }
 
         Reservation updatedReservation =
@@ -396,6 +279,7 @@ public class ReservationService {
     // DELETE RESERVATION
     // =========================================================
 
+    @Transactional
     public void deleteReservation(Long id) {
 
         Reservation reservation =
@@ -404,12 +288,159 @@ public class ReservationService {
                                 new ReservationNotFoundException(
                                         "Reservation not found"));
 
+        validateOwnership(reservation);
+
         reservationRepository.delete(
                 reservation);
     }
 
     // =========================================================
-    // VALIDATE RESERVATION TIME
+    // AUTHENTICATED USER
+    // =========================================================
+
+    private User getAuthenticatedUser() {
+
+        Authentication authentication =
+                SecurityContextHolder.getContext()
+                        .getAuthentication();
+
+        if (authentication == null
+                || !authentication.isAuthenticated()
+                || authentication.getName() == null) {
+
+            throw new RuntimeException(
+                    "User is not authenticated");
+        }
+
+        String username =
+                authentication.getName();
+
+        return userRepository.findByUsername(username)
+                .orElseThrow(() ->
+                        new UserNotFoundException(
+                                "User not found"));
+    }
+
+    // =========================================================
+    // OWNERSHIP VALIDATION
+    // =========================================================
+
+    private void validateOwnership(
+            Reservation reservation) {
+
+        if (isAdmin()) {
+            return;
+        }
+
+        User currentUser =
+                getAuthenticatedUser();
+
+        if (reservation.getUser() == null
+                || reservation.getUser().getId() == null
+                || !reservation.getUser()
+                        .getId()
+                        .equals(currentUser.getId())) {
+
+            throw new RuntimeException(
+                    "You are not authorized to modify this reservation");
+        }
+    }
+
+    // =========================================================
+    // ADMIN CHECK
+    // =========================================================
+
+    private boolean isAdmin() {
+
+        Authentication authentication =
+                SecurityContextHolder.getContext()
+                        .getAuthentication();
+
+        if (authentication == null) {
+            return false;
+        }
+
+        return authentication.getAuthorities()
+                .stream()
+                .anyMatch(authority ->
+                        "ROLE_ADMIN".equals(
+                                authority.getAuthority()));
+    }
+
+    // =========================================================
+    // PAGINATION VALIDATION
+    // =========================================================
+
+    private void validatePagination(
+            int page,
+            int size) {
+
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Page must be zero or greater");
+        }
+
+        if (size < 1) {
+            throw new IllegalArgumentException(
+                    "Size must be greater than zero");
+        }
+
+        if (size > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException(
+                    "Size cannot be greater than "
+                            + MAX_PAGE_SIZE);
+        }
+    }
+
+    // =========================================================
+    // SORT FIELD VALIDATION
+    // =========================================================
+
+    private String validateSortField(
+            String sortBy) {
+
+        if (sortBy == null
+                || sortBy.isBlank()) {
+
+            return "createdAt";
+        }
+
+        if (!ALLOWED_SORT_FIELDS.contains(
+                sortBy)) {
+
+            throw new IllegalArgumentException(
+                    "Invalid sort field: "
+                            + sortBy);
+        }
+
+        return sortBy;
+    }
+
+    // =========================================================
+    // SORT DIRECTION VALIDATION
+    // =========================================================
+
+    private Sort.Direction validateSortDirection(
+            String direction) {
+
+        if (direction == null
+                || direction.isBlank()
+                || "asc".equalsIgnoreCase(direction)) {
+
+            return Sort.Direction.ASC;
+        }
+
+        if ("desc".equalsIgnoreCase(direction)) {
+
+            return Sort.Direction.DESC;
+        }
+
+        throw new IllegalArgumentException(
+                "Invalid sort direction. Use 'asc' or 'desc'");
+    }
+
+    // =========================================================
+    // TIME VALIDATION
     // =========================================================
 
     private void validateReservationTime(
@@ -431,7 +462,7 @@ public class ReservationService {
     }
 
     // =========================================================
-    // CONVERT ENTITY TO RESPONSE DTO
+    // ENTITY -> DTO
     // =========================================================
 
     private ReservationResponse convertToResponse(

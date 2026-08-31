@@ -15,122 +15,89 @@ import com.rms.dto.ErrorResponse;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    
-    // RESOURCE NOT FOUND
-
-
     @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFound(
-            ResourceNotFoundException exception,
-            WebRequest request) {
+    public ResponseEntity<ErrorResponse>
+            handleResourceNotFound(
+                    ResourceNotFoundException exception,
+                    WebRequest request) {
 
-        ErrorResponse errorResponse =
-                createErrorResponse(
-                        HttpStatus.NOT_FOUND,
-                        exception.getMessage(),
-                        request);
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(errorResponse);
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                request);
     }
-
-    
-    // RESERVATION NOT FOUND
-    
 
     @ExceptionHandler(ReservationNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleReservationNotFound(
-            ReservationNotFoundException exception,
-            WebRequest request) {
+    public ResponseEntity<ErrorResponse>
+            handleReservationNotFound(
+                    ReservationNotFoundException exception,
+                    WebRequest request) {
 
-        ErrorResponse errorResponse =
-                createErrorResponse(
-                        HttpStatus.NOT_FOUND,
-                        exception.getMessage(),
-                        request);
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(errorResponse);
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                request);
     }
-
-    
-    // USER NOT FOUND
-    
 
     @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFound(
-            UserNotFoundException exception,
-            WebRequest request) {
+    public ResponseEntity<ErrorResponse>
+            handleUserNotFound(
+                    UserNotFoundException exception,
+                    WebRequest request) {
 
-        ErrorResponse errorResponse =
-                createErrorResponse(
-                        HttpStatus.NOT_FOUND,
-                        exception.getMessage(),
-                        request);
-
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(errorResponse);
+        return buildResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage(),
+                request);
     }
-
-    // ILLEGAL ARGUMENT
-    
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(
-            IllegalArgumentException exception,
-            WebRequest request) {
+    public ResponseEntity<ErrorResponse>
+            handleIllegalArgument(
+                    IllegalArgumentException exception,
+                    WebRequest request) {
 
-        ErrorResponse errorResponse =
-                createErrorResponse(
-                        HttpStatus.BAD_REQUEST,
-                        exception.getMessage(),
-                        request);
-
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(errorResponse);
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage(),
+                request);
     }
-
-    // GENERAL EXCEPTION
-    
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneralException(
-            Exception exception,
-            WebRequest request) {
+    public ResponseEntity<ErrorResponse>
+            handleGeneralException(
+                    Exception exception,
+                    WebRequest request) {
 
-        ErrorResponse errorResponse =
-                createErrorResponse(
-                        HttpStatus.INTERNAL_SERVER_ERROR,
-                        "An unexpected error occurred",
-                        request);
-
-        return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(errorResponse);
+        return buildResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred",
+                request);
     }
 
-    private ErrorResponse createErrorResponse(
+    private ResponseEntity<ErrorResponse> buildResponse(
             HttpStatus status,
             String message,
             WebRequest request) {
 
         String path = "";
 
-        if (request instanceof ServletWebRequest servletWebRequest) {
-            path = servletWebRequest
+        if (request instanceof ServletWebRequest servletRequest) {
+
+            path = servletRequest
                     .getRequest()
                     .getRequestURI();
         }
 
-        return new ErrorResponse(
-                LocalDateTime.now(),
-                status.value(),
-                message,
-                path);
+        ErrorResponse response =
+                new ErrorResponse(
+                        LocalDateTime.now(),
+                        status.value(),
+                        message,
+                        path);
+
+        return ResponseEntity
+                .status(status)
+                .body(response);
     }
 }
-

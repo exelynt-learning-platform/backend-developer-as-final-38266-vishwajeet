@@ -1,11 +1,11 @@
+
 package com.rms.Controller;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 import org.springframework.data.domain.Page;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,36 +32,50 @@ public class ReservationController {
     public ReservationController(
             ReservationService reservationService) {
 
-        this.reservationService = reservationService;
+        this.reservationService =
+                reservationService;
     }
 
-    // CREATE RESERVATION
+    // =========================================================
+    // CREATE
+    // =========================================================
+
     @PostMapping
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<ReservationResponse> createReservation(
             @Valid @RequestBody ReservationRequest request) {
 
-        ReservationResponse response =
-                reservationService.createReservation(request);
-
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(response);
+        return ResponseEntity.ok(
+                reservationService.createReservation(
+                        request));
     }
 
-    // USER - GET OWN RESERVATIONS
+    // =========================================================
+    // USER - MY RESERVATIONS
+    // =========================================================
+
     @GetMapping("/my")
-    public ResponseEntity<List<ReservationResponse>>
-            getMyReservations() {
+    @PreAuthorize("hasRole('USER')")
+    public ResponseEntity<Page<ReservationResponse>>
+            getMyReservations(
+                    @RequestParam(defaultValue = "0")
+                    int page,
 
-        List<ReservationResponse> reservations =
-                reservationService.getMyReservations();
+                    @RequestParam(defaultValue = "10")
+                    int size) {
 
-        return ResponseEntity.ok(reservations);
+        return ResponseEntity.ok(
+                reservationService.getMyReservations(
+                        page,
+                        size));
     }
 
-    // ADMIN - GET RESERVATIONS
-    // FILTER + PAGINATION + SORTING
+    // =========================================================
+    // ADMIN - ALL RESERVATIONS
+    // =========================================================
+
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Page<ReservationResponse>>
             getReservations(
 
@@ -86,7 +100,7 @@ public class ReservationController {
                     @RequestParam(defaultValue = "desc")
                     String direction) {
 
-        Page<ReservationResponse> reservations =
+        return ResponseEntity.ok(
                 reservationService.getReservations(
                         status,
                         minPrice,
@@ -94,44 +108,46 @@ public class ReservationController {
                         page,
                         size,
                         sortBy,
-                        direction
-                );
-
-        return ResponseEntity.ok(reservations);
+                        direction));
     }
 
-    // ADMIN - UPDATE RESERVATION
+    // =========================================================
+    // UPDATE
+    // =========================================================
+
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<ReservationResponse>
             updateReservation(
 
                     @PathVariable Long id,
 
-                    @RequestParam
-                    ReservationStatus status,
-
                     @Valid
-                    @RequestBody ReservationRequest request) {
+                    @RequestBody
+                    ReservationRequest request,
 
-        ReservationResponse response =
+                    @RequestParam(required = false)
+                    ReservationStatus status) {
+
+        return ResponseEntity.ok(
                 reservationService.updateReservation(
                         id,
                         request,
-                        status
-                );
-
-        return ResponseEntity.ok(response);
+                        status));
     }
 
-    // ADMIN - DELETE RESERVATION
+    // =========================================================
+    // DELETE
+    // =========================================================
+
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<Void> deleteReservation(
             @PathVariable Long id) {
 
         reservationService.deleteReservation(id);
 
-        return ResponseEntity
-                .noContent()
-                .build();
+        return ResponseEntity.noContent().build();
     }
 }
+

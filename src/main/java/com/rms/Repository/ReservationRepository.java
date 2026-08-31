@@ -16,4 +16,3 @@ public interface ReservationRepository
             Long userId,
             Pageable pageable);
 }
-

@@ -29,7 +29,9 @@ public class ErrorResponse {
         return timestamp;
     }
 
-    public void setTimestamp(LocalDateTime timestamp) {
+    public void setTimestamp(
+            LocalDateTime timestamp) {
+
         this.timestamp = timestamp;
     }
 
@@ -38,6 +40,7 @@ public class ErrorResponse {
     }
 
     public void setStatus(int status) {
+
         this.status = status;
     }
 
@@ -45,7 +48,9 @@ public class ErrorResponse {
         return message;
     }
 
-    public void setMessage(String message) {
+    public void setMessage(
+            String message) {
+
         this.message = message;
     }
 
@@ -53,8 +58,9 @@ public class ErrorResponse {
         return path;
     }
 
-    public void setPath(String path) {
+    public void setPath(
+            String path) {
+
         this.path = path;
     }
 }
-
